@@ -2,13 +2,19 @@
 
 A Linux service that displays CPU and GPU temperatures on the [Antec Flux Pro](https://www.antec.com/product/case/flux-pro) case's built-in display.
 
-## Features
+Many thanks to [nishtahir](https://github.com/nishtahir/antec-flux-pro-display), his [work](https://nishtahir.com/building-an-ubuntu-service-for-my-antec-flux-display/) with [Ghida](https://ghidralite.com/), and [AKoskovich](https://github.com/AKoskovich/antec_flux_pro_display_service) for the original work.
 
+## Features
+Tested on gentoo (systemd) with nvidia.
+
+Regrettably, I only have nVidia, too greedy of a company for my taste..
+
+If the agentic AI isn't hallucinating:
 - **CPU temperature** - Auto-detected from `/sys/class/hwmon/` or `/sys/class/thermal/`
-- **NVIDIA GPU** - Via NVML (requires nvidia-drivers)
-- **AMD GPU** - Via sysfs (amdgpu driver)
-- **Intel GPU** - Via sysfs (i915/xe drivers, including Arc)
-- **Systemd & OpenRC** service integration
+- **NVIDIA GPU** - via NVML (requires nvidia-drivers)
+- **AMD GPU** - via sysfs (amdgpu driver)
+- **Intel GPU** - via sysfs (i915/xe drivers, including Arc)
+- **Systemd & OpenRC** - service integration
 
 ## Installation
 
@@ -18,7 +24,7 @@ Add the overlay and install:
 
 ```bash
 # Add overlay
-sudo eselect repository add costis git https://github.com/costis-t/costis-overlay.git
+sudo eselect repository add costis git https://github.com/costis-t/costis.git
 sudo emerge --sync costis
 
 # Install (NVIDIA enabled by default)
