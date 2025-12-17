@@ -19,16 +19,18 @@ impl UsbDevice {
                     handle.detach_kernel_driver(0).unwrap_or(());
                 }
                 // Claim the interface so we can communicate with the device
-                handle.claim_interface(0).map_err(|e| {
-                    anyhow::anyhow!("Error claiming interface: {e:?}")
-                })?;
-                
+                handle
+                    .claim_interface(0)
+                    .map_err(|e| anyhow::anyhow!("Error claiming interface: {e:?}"))?;
+
                 // Find the interrupt OUT endpoint (do this once, not every send)
-                let endpoint = handle.device()
+                let endpoint = handle
+                    .device()
                     .config_descriptor(0)
                     .ok()
                     .and_then(|config| {
-                        config.interfaces()
+                        config
+                            .interfaces()
                             .flat_map(|iface| iface.descriptors())
                             .flat_map(|desc| desc.endpoint_descriptors())
                             .find(|ep| {
@@ -38,7 +40,7 @@ impl UsbDevice {
                             .map(|ep| ep.address())
                     })
                     .unwrap_or(0x03);
-                
+
                 eprintln!("USB device opened, endpoint: 0x{:02x}", endpoint);
                 Ok(Self { handle, endpoint })
             }
@@ -74,7 +76,10 @@ impl UsbDevice {
     pub fn send_payload(&self, cpu_temp: &Option<f32>, gpu_temp: &Option<f32>) {
         let payload = generate_payload(cpu_temp, gpu_temp);
 
-        if let Err(e) = self.handle.write_interrupt(self.endpoint, &payload, Duration::from_millis(1000)) {
+        if let Err(e) =
+            self.handle
+                .write_interrupt(self.endpoint, &payload, Duration::from_millis(1000))
+        {
             eprintln!("Error writing to USB device: {e:?}");
         }
     }
@@ -83,16 +88,16 @@ impl UsbDevice {
 fn generate_payload(cpu_temp: &Option<f32>, gpu_temp: &Option<f32>) -> [u8; 12] {
     let cpu = encode_temperature(cpu_temp);
     let gpu = encode_temperature(gpu_temp);
-    
+
     let mut payload = [
-        85, 170, 1, 1, 6,  // Header
-        cpu.0, cpu.1, cpu.2,
-        gpu.0, gpu.1, gpu.2,
-        0,  // Checksum placeholder
+        85, 170, 1, 1, 6, // Header
+        cpu.0, cpu.1, cpu.2, gpu.0, gpu.1, gpu.2, 0, // Checksum placeholder
     ];
-    
+
     // Calculate checksum (sum of first 11 bytes)
-    payload[11] = payload[..11].iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+    payload[11] = payload[..11]
+        .iter()
+        .fold(0u8, |acc, &b| acc.wrapping_add(b));
     payload
 }
 

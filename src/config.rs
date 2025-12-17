@@ -7,7 +7,7 @@ use std::{default::Default, fs, path::Path};
 pub struct Config {
     pub cpu_device: Option<String>,
     #[serde(skip)]
-    _gpu_device: Option<String>,  // Reserved for future use
+    _gpu_device: Option<String>, // Reserved for future use
     pub polling_interval: u64,
 }
 
@@ -29,13 +29,19 @@ impl Config {
         // - Max 60s: ensures display stays reasonably updated
         // - Default 1000ms: good balance of responsiveness vs resource usage
         if self.polling_interval < 100 {
-            eprintln!("Warning: polling_interval {}ms too low (min 100ms), using 100ms", self.polling_interval);
+            eprintln!(
+                "Warning: polling_interval {}ms too low (min 100ms), using 100ms",
+                self.polling_interval
+            );
             self.polling_interval = 100;
         } else if self.polling_interval > 60000 {
-            eprintln!("Warning: polling_interval {}ms too high (max 60s), using 60000ms", self.polling_interval);
+            eprintln!(
+                "Warning: polling_interval {}ms too high (max 60s), using 60000ms",
+                self.polling_interval
+            );
             self.polling_interval = 60000;
         }
-        
+
         // CPU device path validation:
         // - Must be under /sys/ (sysfs) to prevent arbitrary file reads
         // - Must exist and be readable
@@ -44,16 +50,22 @@ impl Config {
             let valid = path.starts_with("/sys/")
                 && !path.contains("..")
                 && std::path::Path::new(path).exists();
-            
+
             if !valid {
-                eprintln!("Warning: cpu_device '{}' invalid or not found, using auto-detection", path);
+                eprintln!(
+                    "Warning: cpu_device '{}' invalid or not found, using auto-detection",
+                    path
+                );
                 self.cpu_device = None;
             } else if !path.contains("temp") {
-                eprintln!("Warning: cpu_device '{}' doesn't look like a temperature sensor", path);
+                eprintln!(
+                    "Warning: cpu_device '{}' doesn't look like a temperature sensor",
+                    path
+                );
                 // Allow it but warn - user might know what they're doing
             }
         }
-        
+
         self
     }
 }

@@ -27,7 +27,7 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // Determine config path: CLI arg > system config > user config
     let config_path = if let Some(ref path) = cli.config {
         PathBuf::from(shellexpand::tilde(path).to_string())
@@ -42,7 +42,10 @@ fn main() -> Result<()> {
         println!("Using config: {}", config_path.display());
         Config::from_config_file(&config_path)?.validated()
     } else {
-        eprintln!("Config file not found at: {}, using defaults", config_path.display());
+        eprintln!(
+            "Config file not found at: {}, using defaults",
+            config_path.display()
+        );
         Config::default()
     };
 

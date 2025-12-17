@@ -90,8 +90,8 @@ impl AvailableGpu {
     pub fn get_available_gpu() -> AvailableGpu {
         #[cfg(feature = "nvidia")]
         {
-            let maybe_nvidia =
-                try_get_nvidia_gpu().inspect_err(|e| eprintln!("Failed to get Nvidia GPU. Error: {e}"));
+            let maybe_nvidia = try_get_nvidia_gpu()
+                .inspect_err(|e| eprintln!("Failed to get Nvidia GPU. Error: {e}"));
 
             if let Ok(gpu) = maybe_nvidia {
                 return gpu;
@@ -110,8 +110,8 @@ impl AvailableGpu {
 
         #[cfg(feature = "intel")]
         {
-            let maybe_intel =
-                try_get_intel_gpu().inspect_err(|e| eprintln!("Failed to get Intel GPU. Error: {e}"));
+            let maybe_intel = try_get_intel_gpu()
+                .inspect_err(|e| eprintln!("Failed to get Intel GPU. Error: {e}"));
 
             if let Ok(gpu) = maybe_intel {
                 return gpu;
@@ -159,7 +159,7 @@ fn try_get_amd_gpu() -> Result<AvailableGpu> {
     // Look for AMD GPU hwmon devices
     // AMD GPUs typically expose temps via /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input
     // or via /sys/class/hwmon/hwmon*/temp1_input with name "amdgpu"
-    
+
     // First try the hwmon approach (more reliable)
     if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
         for entry in entries.flatten() {
@@ -214,7 +214,7 @@ fn try_get_intel_gpu() -> Result<AvailableGpu> {
     // Look for Intel GPU hwmon devices
     // Intel GPUs (including Arc) expose temps via /sys/class/hwmon/hwmon*/temp1_input
     // with name "i915" (legacy) or "xe" (newer Arc GPUs)
-    
+
     // First try the hwmon approach
     if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
         for entry in entries.flatten() {
