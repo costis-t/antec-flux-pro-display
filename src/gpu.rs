@@ -165,15 +165,15 @@ fn try_get_amd_gpu() -> Result<AvailableGpu> {
         for entry in entries.flatten() {
             let path = entry.path();
             let name_path = path.join("name");
-            if let Ok(name) = fs::read_to_string(&name_path) {
-                if name.trim() == "amdgpu" {
-                    let temp_path = path.join("temp1_input");
-                    if temp_path.exists() {
-                        println!("Found AMD GPU at: {}", temp_path.display());
-                        return Ok(AvailableGpu::Amd(Box::new(AmdGpu::new(
-                            temp_path.to_string_lossy().to_string(),
-                        ))));
-                    }
+            if let Ok(name) = fs::read_to_string(&name_path)
+                && name.trim() == "amdgpu"
+            {
+                let temp_path = path.join("temp1_input");
+                if temp_path.exists() {
+                    println!("Found AMD GPU at: {}", temp_path.display());
+                    return Ok(AvailableGpu::Amd(Box::new(AmdGpu::new(
+                        temp_path.to_string_lossy().to_string(),
+                    ))));
                 }
             }
         }
@@ -184,21 +184,21 @@ fn try_get_amd_gpu() -> Result<AvailableGpu> {
         for entry in entries.flatten() {
             let path = entry.path();
             let device_hwmon = path.join("device/hwmon");
-            if device_hwmon.exists() {
-                if let Ok(hwmon_entries) = fs::read_dir(&device_hwmon) {
-                    for hwmon_entry in hwmon_entries.flatten() {
-                        let temp_path = hwmon_entry.path().join("temp1_input");
-                        if temp_path.exists() {
-                            // Verify it's an AMD GPU by checking the driver
-                            let driver_path = path.join("device/driver");
-                            if let Ok(driver_link) = fs::read_link(&driver_path) {
-                                if driver_link.to_string_lossy().contains("amdgpu") {
-                                    println!("Found AMD GPU at: {}", temp_path.display());
-                                    return Ok(AvailableGpu::Amd(Box::new(AmdGpu::new(
-                                        temp_path.to_string_lossy().to_string(),
-                                    ))));
-                                }
-                            }
+            if device_hwmon.exists()
+                && let Ok(hwmon_entries) = fs::read_dir(&device_hwmon)
+            {
+                for hwmon_entry in hwmon_entries.flatten() {
+                    let temp_path = hwmon_entry.path().join("temp1_input");
+                    if temp_path.exists() {
+                        // Verify it's an AMD GPU by checking the driver
+                        let driver_path = path.join("device/driver");
+                        if let Ok(driver_link) = fs::read_link(&driver_path)
+                            && driver_link.to_string_lossy().contains("amdgpu")
+                        {
+                            println!("Found AMD GPU at: {}", temp_path.display());
+                            return Ok(AvailableGpu::Amd(Box::new(AmdGpu::new(
+                                temp_path.to_string_lossy().to_string(),
+                            ))));
                         }
                     }
                 }
@@ -241,21 +241,21 @@ fn try_get_intel_gpu() -> Result<AvailableGpu> {
         for entry in entries.flatten() {
             let path = entry.path();
             let device_hwmon = path.join("device/hwmon");
-            if device_hwmon.exists() {
-                if let Ok(hwmon_entries) = fs::read_dir(&device_hwmon) {
-                    for hwmon_entry in hwmon_entries.flatten() {
-                        let temp_path = hwmon_entry.path().join("temp1_input");
-                        if temp_path.exists() {
-                            // Verify it's an Intel GPU by checking the driver
-                            let driver_path = path.join("device/driver");
-                            if let Ok(driver_link) = fs::read_link(&driver_path) {
-                                let driver_name = driver_link.to_string_lossy();
-                                if driver_name.contains("i915") || driver_name.contains("xe") {
-                                    println!("Found Intel GPU at: {}", temp_path.display());
-                                    return Ok(AvailableGpu::Intel(Box::new(IntelGpu::new(
-                                        temp_path.to_string_lossy().to_string(),
-                                    ))));
-                                }
+            if device_hwmon.exists()
+                && let Ok(hwmon_entries) = fs::read_dir(&device_hwmon)
+            {
+                for hwmon_entry in hwmon_entries.flatten() {
+                    let temp_path = hwmon_entry.path().join("temp1_input");
+                    if temp_path.exists() {
+                        // Verify it's an Intel GPU by checking the driver
+                        let driver_path = path.join("device/driver");
+                        if let Ok(driver_link) = fs::read_link(&driver_path) {
+                            let driver_name = driver_link.to_string_lossy();
+                            if driver_name.contains("i915") || driver_name.contains("xe") {
+                                println!("Found Intel GPU at: {}", temp_path.display());
+                                return Ok(AvailableGpu::Intel(Box::new(IntelGpu::new(
+                                    temp_path.to_string_lossy().to_string(),
+                                ))));
                             }
                         }
                     }

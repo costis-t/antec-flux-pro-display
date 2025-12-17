@@ -13,10 +13,10 @@ pub fn default_cpu_device() -> Option<String> {
     // This is common for AMD CPUs where Tctl is used to represent the CPU temperature.
     for hwmon in fs::read_dir("/sys/class/hwmon").ok()? {
         let path = hwmon.ok()?.path();
-        if let Ok(label) = fs::read_to_string(format!("{}/temp1_label", path.display())) {
-            if label.trim() == "Tctl" {
-                return Some(format!("{}/temp1_input", path.display()));
-            }
+        if let Ok(label) = fs::read_to_string(format!("{}/temp1_label", path.display()))
+            && label.trim() == "Tctl"
+        {
+            return Some(format!("{}/temp1_input", path.display()));
         }
     }
 
