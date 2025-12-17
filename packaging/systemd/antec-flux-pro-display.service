@@ -1,0 +1,16 @@
+[Unit]
+Description=Antec Flux Pro Display Temperature Monitor
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/antec-flux-pro-display
+Restart=always
+RestartSec=5
+ProtectSystem=strict
+ProtectHome=false
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
