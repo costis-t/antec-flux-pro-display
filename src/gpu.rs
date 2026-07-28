@@ -13,6 +13,10 @@ use crate::sensors;
 #[cfg(feature = "nvidia")]
 use nvml_wrapper::{Nvml, enum_wrappers::device::TemperatureSensor};
 
+/// Which NVML device to report. Multi-GPU selection is not configurable yet.
+#[cfg(feature = "nvidia")]
+const NVML_DEVICE_INDEX: u32 = 0;
+
 #[cfg(feature = "nvidia")]
 pub struct NvidiaGpu {
     nvml: Nvml,
@@ -24,7 +28,7 @@ impl NvidiaGpu {
     pub fn new(nvml: Nvml) -> Self {
         Self {
             nvml,
-            device_index: 0,
+            device_index: NVML_DEVICE_INDEX,
         }
     }
 
@@ -127,6 +131,16 @@ fn try_get_nvidia_gpu() -> Result<AvailableGpu> {
     let device_count = nvml
         .device_count()
         .context("Failed to get NVML device count")?;
+
+    // Claiming the NVIDIA backend short-circuits the AMD and Intel probes for
+    // the life of the process, so only claim it if there is a device we can
+    // actually read. libnvidia-ml.so.1 being present proves nothing: the card
+    // may be bound to vfio, removed, or left over from a GPU swap.
+    if device_count == 0 {
+        anyhow::bail!("NVML initialized but reports 0 GPUs");
+    }
+    nvml.device_by_index(NVML_DEVICE_INDEX)
+        .context("NVML reports a GPU but device 0 is not accessible")?;
 
     println!("Found {device_count} NVML-supported GPUs");
     Ok(AvailableGpu::Nvidia(Box::new(NvidiaGpu::new(nvml))))

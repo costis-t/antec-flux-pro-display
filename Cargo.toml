@@ -12,7 +12,13 @@ authors = [
 ]
 
 [features]
-default = ["nvidia"]
+# All three backends are on by default: `amd` and `intel` are pure sysfs and
+# pull in no dependencies, and `nvidia` only dlopens libnvidia-ml.so.1 at
+# runtime, so enabling them costs nothing at build time on any host. Without
+# this, `cargo deb` and a stock `cargo build` produce a binary that is
+# structurally incapable of reading an AMD or Intel GPU, and the failure
+# surfaces as "Failed to get Nvidia GPU" -- which reads as a driver problem.
+default = ["nvidia", "amd", "intel"]
 nvidia = ["nvml-wrapper"]
 amd = []
 intel = []
