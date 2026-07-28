@@ -1,26 +1,30 @@
 #!/bin/sh
 set -e
 
-# Reload udev rules
-udevadm control --reload-rules || true
-udevadm trigger || true
+# Finish removing the obsolete 0666 udev rule from versions <= 0.1.2
+dpkg-maintscript-helper rm_conffile \
+    /lib/udev/rules.d/99-antec-flux-pro-display.rules 0.1.3~ -- "$@"
 
-# Add plugdev group if it doesn't exist
+# The udev rule's GROUP="plugdev" needs the group to exist
 getent group plugdev >/dev/null || groupadd -r plugdev
 
-# Add all users in sudo group to plugdev group
-for user in $(getent group sudo | cut -d: -f4 | tr ',' ' '); do
-    usermod -a -G plugdev "$user" || true
-done
+# Reload udev rules and re-evaluate the display device
+udevadm control --reload-rules || true
+udevadm trigger --subsystem-match=usb --attr-match=idVendor=2022 --attr-match=idProduct=0522 || true
 
 # Reload systemd
 systemctl daemon-reload || true
 
-# Enable and start service on fresh install
-if [ "$1" = "configure" ]; then
-    systemctl enable antec-flux-pro-display.service || true
-    systemctl start antec-flux-pro-display.service || true
+if [ -d /run/systemd/system ] && [ "$1" = "configure" ]; then
+    if [ -z "$2" ]; then
+        # Fresh install: enable and start
+        systemctl enable antec-flux-pro-display.service || true
+        systemctl start antec-flux-pro-display.service || true
+    else
+        # Upgrade: restart onto the new binary, but respect an admin
+        # who has stopped or disabled the service
+        systemctl try-restart antec-flux-pro-display.service || true
+    fi
 fi
-
 
 #DEBHELPER#
