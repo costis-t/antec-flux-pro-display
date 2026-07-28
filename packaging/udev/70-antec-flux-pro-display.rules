@@ -1,0 +1,4 @@
+# Antec Flux Pro display (2022:0522).
+# 0660 + plugdev for daemons/manual use; uaccess grants the active seat's user
+# an ACL (this file must sort before 73-seat-late.rules for the tag to work).
+SUBSYSTEM=="usb", ATTR{idVendor}=="2022", ATTR{idProduct}=="0522", MODE="0660", GROUP="plugdev", TAG+="uaccess"
