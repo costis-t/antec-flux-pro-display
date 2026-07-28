@@ -158,6 +158,22 @@ mod test {
     }
 
     #[test]
+    fn test_shutdown_frame_blanks_both_readings() {
+        // main() blanks the display on every exit path with (None, None).
+        // Some(0.0) is not equivalent: it encodes as a plausible 00.0 and
+        // reads as a real measurement rather than "daemon stopped".
+        let blank = generate_payload(None, None);
+        assert_eq!(&blank[5..11], &[238, 238, 238, 238, 238, 238]);
+        assert_ne!(blank, generate_payload(Some(0.0), Some(0.0)));
+
+        // The checksum must still be self-consistent for the blank frame
+        assert_eq!(
+            blank[11],
+            blank[..11].iter().fold(0u8, |acc, &b| acc.wrapping_add(b))
+        );
+    }
+
+    #[test]
     fn test_encode_temperature_rejects_invalid_readings() {
         assert_eq!(encode_temperature(Some(-5.0)), NO_READING);
         assert_eq!(encode_temperature(Some(f32::NAN)), NO_READING);
