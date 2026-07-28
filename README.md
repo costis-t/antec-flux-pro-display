@@ -22,7 +22,7 @@ Add the overlay and install:
 
 ```bash
 # Add overlay
-sudo eselect repository add costis git https://github.com/costis-t/costis.git
+sudo eselect repository add costis git https://github.com/costis-t/costis-overlay.git
 sudo emerge --sync costis
 
 # Install (NVIDIA enabled by default)
