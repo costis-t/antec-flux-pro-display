@@ -1,25 +1,32 @@
-use std::{fs, str::FromStr};
+use std::fs;
+
+use crate::sensors;
 
 pub fn read_temp(device: &str) -> Option<f32> {
-    fs::read_to_string(device)
-        .inspect_err(|e| eprintln!("Error reading CPU temp: {e}"))
-        .ok()
-        .and_then(|content| f32::from_str(content.trim()).ok())
-        .map(|temp| temp / 1000.0)
+    sensors::read_millidegrees(device, "CPU")
 }
 
 pub fn default_cpu_device() -> Option<String> {
-    // Loop through all hwmon devices, find the one that matches CPU temp with the temp1_label that matches Tctl
-    // This is common for AMD CPUs where Tctl is used to represent the CPU temperature.
-    for hwmon in fs::read_dir("/sys/class/hwmon").ok()? {
-        let path = hwmon.ok()?.path();
-        if let Ok(label) = fs::read_to_string(format!("{}/temp1_label", path.display()))
-            && label.trim() == "Tctl"
-        {
-            return Some(format!("{}/temp1_input", path.display()));
+    // Prefer hwmon devices that are actual CPU sensors: AMD k10temp exposes
+    // temp1_label "Tctl"; Intel coretemp and the out-of-tree zenpower driver
+    // are matched by name since their labels vary. Errors on individual
+    // entries fall through to the next entry and then to the fallbacks below.
+    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
+        for hwmon in entries.flatten() {
+            let path = hwmon.path();
+            let label_ok = fs::read_to_string(path.join("temp1_label"))
+                .is_ok_and(|label| label.trim() == "Tctl");
+            let name_ok = fs::read_to_string(path.join("name"))
+                .is_ok_and(|name| matches!(name.trim(), "k10temp" | "coretemp" | "zenpower"));
+            let temp_path = path.join("temp1_input");
+            if (label_ok || name_ok) && temp_path.exists() {
+                return Some(temp_path.to_string_lossy().into_owned());
+            }
         }
     }
 
+    // thermal_zone0 may be acpitz or another non-CPU sensor on some boards,
+    // but it is the best remaining guess.
     if fs::read_to_string("/sys/class/thermal/thermal_zone0/temp").is_ok() {
         return Some("/sys/class/thermal/thermal_zone0/temp".to_string());
     }

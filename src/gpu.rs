@@ -1,11 +1,14 @@
 #[cfg(any(feature = "amd", feature = "intel"))]
-use std::{fs, str::FromStr};
+use std::fs;
 
 #[cfg(feature = "nvidia")]
 use anyhow::Context;
 
 #[cfg(any(feature = "nvidia", feature = "amd", feature = "intel"))]
 use anyhow::Result;
+
+#[cfg(any(feature = "amd", feature = "intel"))]
+use crate::sensors;
 
 #[cfg(feature = "nvidia")]
 use nvml_wrapper::{Nvml, enum_wrappers::device::TemperatureSensor};
@@ -36,43 +39,18 @@ impl NvidiaGpu {
     }
 }
 
-#[cfg(feature = "amd")]
-pub struct AmdGpu {
+/// A GPU whose temperature is exposed as a sysfs hwmon file
+/// (AMD amdgpu, Intel i915/xe).
+#[cfg(any(feature = "amd", feature = "intel"))]
+pub struct SysfsGpu {
     hwmon_path: String,
+    vendor: &'static str,
 }
 
-#[cfg(feature = "amd")]
-impl AmdGpu {
-    pub fn new(hwmon_path: String) -> Self {
-        Self { hwmon_path }
-    }
-
+#[cfg(any(feature = "amd", feature = "intel"))]
+impl SysfsGpu {
     pub fn temp(&self) -> Option<f32> {
-        fs::read_to_string(&self.hwmon_path)
-            .inspect_err(|e| eprintln!("Error reading AMD GPU temp: {e}"))
-            .ok()
-            .and_then(|content| f32::from_str(content.trim()).ok())
-            .map(|temp| temp / 1000.0)
-    }
-}
-
-#[cfg(feature = "intel")]
-pub struct IntelGpu {
-    hwmon_path: String,
-}
-
-#[cfg(feature = "intel")]
-impl IntelGpu {
-    pub fn new(hwmon_path: String) -> Self {
-        Self { hwmon_path }
-    }
-
-    pub fn temp(&self) -> Option<f32> {
-        fs::read_to_string(&self.hwmon_path)
-            .inspect_err(|e| eprintln!("Error reading Intel GPU temp: {e}"))
-            .ok()
-            .and_then(|content| f32::from_str(content.trim()).ok())
-            .map(|temp| temp / 1000.0)
+        sensors::read_millidegrees(&self.hwmon_path, self.vendor)
     }
 }
 
@@ -80,9 +58,9 @@ pub enum AvailableGpu {
     #[cfg(feature = "nvidia")]
     Nvidia(Box<NvidiaGpu>),
     #[cfg(feature = "amd")]
-    Amd(Box<AmdGpu>),
+    Amd(SysfsGpu),
     #[cfg(feature = "intel")]
-    Intel(Box<IntelGpu>),
+    Intel(SysfsGpu),
     Unknown,
 }
 
@@ -156,107 +134,59 @@ fn try_get_nvidia_gpu() -> Result<AvailableGpu> {
 
 #[cfg(feature = "amd")]
 fn try_get_amd_gpu() -> Result<AvailableGpu> {
-    // Look for AMD GPU hwmon devices
-    // AMD GPUs typically expose temps via /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input
-    // or via /sys/class/hwmon/hwmon*/temp1_input with name "amdgpu"
-
-    // First try the hwmon approach (more reliable)
-    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name_path = path.join("name");
-            if let Ok(name) = fs::read_to_string(&name_path)
-                && name.trim() == "amdgpu"
-            {
-                let temp_path = path.join("temp1_input");
-                if temp_path.exists() {
-                    println!("Found AMD GPU at: {}", temp_path.display());
-                    return Ok(AvailableGpu::Amd(Box::new(AmdGpu::new(
-                        temp_path.to_string_lossy().to_string(),
-                    ))));
-                }
-            }
-        }
-    }
-
-    // Fallback: try DRM subsystem
-    if let Ok(entries) = fs::read_dir("/sys/class/drm") {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let device_hwmon = path.join("device/hwmon");
-            if device_hwmon.exists()
-                && let Ok(hwmon_entries) = fs::read_dir(&device_hwmon)
-            {
-                for hwmon_entry in hwmon_entries.flatten() {
-                    let temp_path = hwmon_entry.path().join("temp1_input");
-                    if temp_path.exists() {
-                        // Verify it's an AMD GPU by checking the driver
-                        let driver_path = path.join("device/driver");
-                        if let Ok(driver_link) = fs::read_link(&driver_path)
-                            && driver_link.to_string_lossy().contains("amdgpu")
-                        {
-                            println!("Found AMD GPU at: {}", temp_path.display());
-                            return Ok(AvailableGpu::Amd(Box::new(AmdGpu::new(
-                                temp_path.to_string_lossy().to_string(),
-                            ))));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    anyhow::bail!("No AMD GPU found")
+    find_sysfs_gpu(&["amdgpu"], &["amdgpu"], "AMD").map(AvailableGpu::Amd)
 }
 
 #[cfg(feature = "intel")]
 fn try_get_intel_gpu() -> Result<AvailableGpu> {
-    // Look for Intel GPU hwmon devices
-    // Intel GPUs (including Arc) expose temps via /sys/class/hwmon/hwmon*/temp1_input
-    // with name "i915" (legacy) or "xe" (newer Arc GPUs)
+    // i915 covers legacy/integrated Intel GPUs, xe covers Arc and newer
+    find_sysfs_gpu(&["i915", "xe"], &["i915", "xe"], "Intel").map(AvailableGpu::Intel)
+}
 
-    // First try the hwmon approach
+/// Locate a GPU temperature sensor in sysfs: first by hwmon device name,
+/// then by scanning DRM devices and matching the bound driver.
+#[cfg(any(feature = "amd", feature = "intel"))]
+fn find_sysfs_gpu(
+    hwmon_names: &[&str],
+    driver_substrings: &[&str],
+    vendor: &'static str,
+) -> Result<SysfsGpu> {
     if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
         for entry in entries.flatten() {
             let path = entry.path();
-            let name_path = path.join("name");
-            if let Ok(name) = fs::read_to_string(&name_path) {
-                let name = name.trim();
-                // Check for Intel GPU drivers: i915 (legacy/integrated), xe (Arc/newer)
-                if name == "i915" || name == "xe" {
-                    let temp_path = path.join("temp1_input");
-                    if temp_path.exists() {
-                        println!("Found Intel GPU ({name}) at: {}", temp_path.display());
-                        return Ok(AvailableGpu::Intel(Box::new(IntelGpu::new(
-                            temp_path.to_string_lossy().to_string(),
-                        ))));
-                    }
+            if let Ok(name) = fs::read_to_string(path.join("name"))
+                && hwmon_names.contains(&name.trim())
+            {
+                let temp_path = path.join("temp1_input");
+                if temp_path.exists() {
+                    println!("Found {vendor} GPU at: {}", temp_path.display());
+                    return Ok(SysfsGpu {
+                        hwmon_path: temp_path.to_string_lossy().into_owned(),
+                        vendor,
+                    });
                 }
             }
         }
     }
 
-    // Fallback: try DRM subsystem
+    // Fallback: DRM subsystem
     if let Ok(entries) = fs::read_dir("/sys/class/drm") {
         for entry in entries.flatten() {
             let path = entry.path();
             let device_hwmon = path.join("device/hwmon");
-            if device_hwmon.exists()
-                && let Ok(hwmon_entries) = fs::read_dir(&device_hwmon)
-            {
+            if let Ok(hwmon_entries) = fs::read_dir(&device_hwmon) {
                 for hwmon_entry in hwmon_entries.flatten() {
                     let temp_path = hwmon_entry.path().join("temp1_input");
-                    if temp_path.exists() {
-                        // Verify it's an Intel GPU by checking the driver
-                        let driver_path = path.join("device/driver");
-                        if let Ok(driver_link) = fs::read_link(&driver_path) {
-                            let driver_name = driver_link.to_string_lossy();
-                            if driver_name.contains("i915") || driver_name.contains("xe") {
-                                println!("Found Intel GPU at: {}", temp_path.display());
-                                return Ok(AvailableGpu::Intel(Box::new(IntelGpu::new(
-                                    temp_path.to_string_lossy().to_string(),
-                                ))));
-                            }
+                    if temp_path.exists()
+                        && let Ok(driver_link) = fs::read_link(path.join("device/driver"))
+                    {
+                        let driver = driver_link.to_string_lossy();
+                        if driver_substrings.iter().any(|d| driver.contains(d)) {
+                            println!("Found {vendor} GPU at: {}", temp_path.display());
+                            return Ok(SysfsGpu {
+                                hwmon_path: temp_path.to_string_lossy().into_owned(),
+                                vendor,
+                            });
                         }
                     }
                 }
@@ -264,5 +194,5 @@ fn try_get_intel_gpu() -> Result<AvailableGpu> {
         }
     }
 
-    anyhow::bail!("No Intel GPU found")
+    anyhow::bail!("No {vendor} GPU found")
 }

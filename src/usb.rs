@@ -5,6 +5,9 @@ use anyhow::Result;
 pub const VENDOR_ID: u16 = 0x2022;
 pub const PRODUCT_ID: u16 = 0x0522;
 
+/// Digit bytes the display renders as "no reading".
+const NO_READING: (u8, u8, u8) = (238, 238, 238);
+
 pub struct UsbDevice {
     handle: rusb::DeviceHandle<rusb::GlobalContext>,
     endpoint: u8,
@@ -15,8 +18,13 @@ impl UsbDevice {
         match rusb::open_device_with_vid_pid(vendor_id, product_id) {
             Some(handle) => {
                 // Detach the kernel driver if it is attached
-                if handle.kernel_driver_active(0).unwrap_or(false) {
-                    handle.detach_kernel_driver(0).unwrap_or(());
+                if handle.kernel_driver_active(0).unwrap_or(false)
+                    && let Err(e) = handle.detach_kernel_driver(0)
+                {
+                    eprintln!(
+                        "Warning: failed to detach kernel driver from interface 0: {e:?}; \
+                        claiming the interface may fail with Busy"
+                    );
                 }
                 // Claim the interface so we can communicate with the device
                 handle
@@ -73,19 +81,22 @@ impl UsbDevice {
         }
     }
 
-    pub fn send_payload(&self, cpu_temp: &Option<f32>, gpu_temp: &Option<f32>) {
-        let payload = generate_payload(cpu_temp, gpu_temp);
+    /// Recover a stalled endpoint (CLEAR_FEATURE / ENDPOINT_HALT)
+    pub fn clear_halt(&self) -> rusb::Result<()> {
+        self.handle.clear_halt(self.endpoint)
+    }
 
-        if let Err(e) =
-            self.handle
-                .write_interrupt(self.endpoint, &payload, Duration::from_millis(1000))
-        {
-            eprintln!("Error writing to USB device: {e:?}");
-        }
+    /// Send a temperature frame. Errors are returned so the caller can decide
+    /// which are fatal (e.g. device unplugged) and which are transient.
+    pub fn send_payload(&self, cpu_temp: Option<f32>, gpu_temp: Option<f32>) -> rusb::Result<()> {
+        let payload = generate_payload(cpu_temp, gpu_temp);
+        self.handle
+            .write_interrupt(self.endpoint, &payload, Duration::from_millis(1000))
+            .map(|_| ())
     }
 }
 
-fn generate_payload(cpu_temp: &Option<f32>, gpu_temp: &Option<f32>) -> [u8; 12] {
+fn generate_payload(cpu_temp: Option<f32>, gpu_temp: Option<f32>) -> [u8; 12] {
     let cpu = encode_temperature(cpu_temp);
     let gpu = encode_temperature(gpu_temp);
 
@@ -101,14 +112,23 @@ fn generate_payload(cpu_temp: &Option<f32>, gpu_temp: &Option<f32>) -> [u8; 12] 
     payload
 }
 
-fn encode_temperature(temp: &Option<f32>) -> (u8, u8, u8) {
-    if let Some(temp) = temp {
-        let ones = (temp / 10.0) as u8;
-        let tens = (temp % 10.0) as u8;
-        let tenths = ((temp * 10.0) % 10.0) as u8;
-        return (ones, tens, tenths);
+fn encode_temperature(temp: Option<f32>) -> (u8, u8, u8) {
+    match temp {
+        Some(t) if t >= 0.0 => {
+            // The display has three digits: tens, ones, tenths. Work in
+            // integer tenths so digits carry correctly, round in-between
+            // readings (45.678 -> 45.7) instead of truncating, and saturate
+            // at 99.9 since values >= 100 are not representable.
+            let tenths = ((t * 10.0).round() as u32).min(999);
+            (
+                (tenths / 100) as u8,
+                (tenths / 10 % 10) as u8,
+                (tenths % 10) as u8,
+            )
+        }
+        // No reading, or a negative/NaN value from a misbehaving sensor
+        _ => NO_READING,
     }
-    (238, 238, 238)
 }
 
 #[cfg(test)]
@@ -117,15 +137,38 @@ mod test {
 
     #[test]
     fn test_generate_payload() {
-        let actual = generate_payload(&Some(24.0), &Some(16.0));
+        let actual = generate_payload(Some(24.0), Some(16.0));
         let expected = vec![85, 170, 1, 1, 6, 2, 4, 0, 1, 6, 0, 20];
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_generate_payload_with_no_gpu() {
-        let actual = generate_payload(&Some(24.0), &None);
+        let actual = generate_payload(Some(24.0), None);
         let expected = vec![85, 170, 1, 1, 6, 2, 4, 0, 238, 238, 238, 215];
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_encode_temperature_saturates_above_display_range() {
+        // >= 100 C must not produce digit bytes outside 0-9
+        assert_eq!(encode_temperature(Some(100.5)), (9, 9, 9));
+        assert_eq!(encode_temperature(Some(105.3)), (9, 9, 9));
+        assert_eq!(encode_temperature(Some(f32::INFINITY)), (9, 9, 9));
+    }
+
+    #[test]
+    fn test_encode_temperature_rejects_invalid_readings() {
+        assert_eq!(encode_temperature(Some(-5.0)), NO_READING);
+        assert_eq!(encode_temperature(Some(f32::NAN)), NO_READING);
+        assert_eq!(encode_temperature(None), NO_READING);
+    }
+
+    #[test]
+    fn test_encode_temperature_rounds_to_nearest_tenth() {
+        // per-digit truncation would show 45.6 for a 45678 millidegree reading
+        assert_eq!(encode_temperature(Some(45.678)), (4, 5, 7));
+        assert_eq!(encode_temperature(Some(99.9)), (9, 9, 9));
+        assert_eq!(encode_temperature(Some(0.0)), (0, 0, 0));
     }
 }
