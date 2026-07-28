@@ -5,16 +5,14 @@ A Linux service that displays CPU and GPU temperatures on the [Antec Flux Pro](h
 Many thanks to [nishtahir](https://github.com/nishtahir/antec-flux-pro-display), his [work](https://nishtahir.com/building-an-ubuntu-service-for-my-antec-flux-display/) with [Ghida](https://ghidralite.com/), and [AKoskovich](https://github.com/AKoskovich/antec_flux_pro_display_service) for the original work.
 
 ## Features
-Tested on gentoo (systemd) with nvidia.
+Tested on Gentoo (systemd) with an NVIDIA GPU. AMD and Intel support is
+implemented but not yet verified on real hardware — reports welcome.
 
-Regrettably, I only have nVidia, too greedy of a company for my taste..
-
-If the agentic AI isn't hallucinating:
-- **CPU temperature** - Auto-detected from `/sys/class/hwmon/` or `/sys/class/thermal/`
+- **CPU temperature** - Auto-detected from `/sys/class/hwmon/` (k10temp/coretemp/zenpower) or `/sys/class/thermal/`
 - **NVIDIA GPU** - via NVML (requires nvidia-drivers)
 - **AMD GPU** - via sysfs (amdgpu driver)
 - **Intel GPU** - via sysfs (i915/xe drivers, including Arc)
-- **Systemd & OpenRC** - service integration
+- **Systemd** - service integration (this repo ships a systemd unit; the Gentoo overlay package also provides an OpenRC init script)
 
 ## Installation
 
@@ -47,8 +45,15 @@ git clone https://github.com/costis-t/antec-flux-pro-display.git
 cd antec-flux-pro-display
 cargo build --release --features "nvidia,amd,intel"
 
+# Remove udev rules from previous versions (they made the device world-writable)
+sudo rm -f /etc/udev/rules.d/99-antec-flux-pro-display.rules \
+           /lib/udev/rules.d/99-antec-flux-pro-display.rules
+
+# The rule grants access via the plugdev group; create it if missing
+getent group plugdev >/dev/null || sudo groupadd -r plugdev
+
 # Install udev rules
-sudo cp packaging/udev/99-antec-flux-pro-display.rules /etc/udev/rules.d/
+sudo cp packaging/udev/70-antec-flux-pro-display.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
@@ -62,6 +67,11 @@ Config file location (in order of priority):
 1. `--config` CLI argument
 2. `/etc/antec-flux-pro-display/config.toml`
 3. `~/.config/antec-flux-pro-display/config.toml`
+
+Note: the packaged systemd service runs with `ProtectHome=true`, so it only
+reads `/etc/antec-flux-pro-display/config.toml`.
+
+All keys are optional; defaults are used for anything omitted.
 
 ```toml
 # CPU temperature device (auto-detected if not set)
@@ -78,19 +88,45 @@ polling_interval = 1000
 sudo systemctl status antec-flux-pro-display
 journalctl -u antec-flux-pro-display -f
 
-# OpenRC
+# OpenRC (init script provided by the Gentoo overlay package)
 sudo rc-service antec-flux-pro-display status
 ```
+
+The daemon deliberately exits on fatal USB errors (e.g. the display is
+unplugged) so its supervisor can restart it with a fresh device handle. The
+shipped systemd unit does this automatically (`Restart=always`); OpenRC users
+should run it under `supervise-daemon` with `--respawn`. A manual terminal run
+will simply exit on unplug — just start it again.
+
+To customize the packaged systemd unit, use a drop-in
+(`sudo systemctl edit antec-flux-pro-display`) rather than editing the unit
+file under `/lib`, which is overwritten on upgrade.
 
 ## Troubleshooting
 
 ```bash
 # Check USB device is connected
-ls -la /dev/bus/usb/*/
+lsusb -d 2022:0522
 
-# Check udev rules applied (should show plugdev group)
-ls -la /dev/bus/usb/*/* | grep plugdev
+# Check udev rules applied: the device node should be mode 0660 with an
+# ACL for your seat (group shows plugdev only if that group exists)
+ls -la $(lsusb -d 2022:0522 | awk '{printf "/dev/bus/usb/%s/%03d", $2, $4}')
+
+# For manual (non-root) runs without a seat ACL, join plugdev:
+# getent group plugdev >/dev/null || sudo groupadd -r plugdev
+# sudo usermod -aG plugdev $USER   (then log out and back in)
+
+# If the mode shows 0666, a stale rules file from an older version is
+# still installed and overrides the current one — remove it:
+# sudo rm -f /etc/udev/rules.d/99-antec-flux-pro-display.rules \
+#            /lib/udev/rules.d/99-antec-flux-pro-display.rules
+# then reload rules and re-trigger.
 ```
+
+On headless NVIDIA systems the hardened systemd unit
+(`ProtectKernelModules=true`) prevents NVML from auto-loading the `nvidia`
+kernel module; if GPU temperature is missing, load it at boot via
+`/etc/modules-load.d/nvidia.conf`.
 
 ## License
 
