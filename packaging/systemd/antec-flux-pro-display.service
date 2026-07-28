@@ -8,9 +8,19 @@ ExecStart=/usr/bin/antec-flux-pro-display
 Restart=always
 RestartSec=5
 ProtectSystem=strict
-ProtectHome=false
+# The packaged service reads its config from /etc/antec-flux-pro-display/;
+# the ~/.config fallback is not reachable with ProtectHome=true.
+ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
 
 [Install]
 WantedBy=multi-user.target
