@@ -31,10 +31,15 @@ pub fn default_cpu_device() -> Option<String> {
         return Some("/sys/class/thermal/thermal_zone0/temp".to_string());
     }
 
-    if fs::read_to_string("/sys/class/hwmon/hwmon0/temp1_input").is_ok() {
-        return Some("/sys/class/hwmon/hwmon0/temp1_input".to_string());
-    }
-
-    eprintln!("Could not find CPU temp path");
+    // Deliberately no hwmon0 fallback. hwmon numbering is assigned in probe
+    // order, so hwmon0 is whatever registered first -- commonly an NVMe drive
+    // or a chipset sensor, and on hosts with no thermal zones at all the
+    // fallback above does not catch that. Reporting no reading is better than
+    // confidently displaying an unrelated device's temperature as the CPU's;
+    // set cpu_device explicitly if auto-detection misses your sensor.
+    eprintln!(
+        "Could not identify a CPU temperature sensor. Set cpu_device in the \
+         config file to a /sys path (see: grep -H . /sys/class/hwmon/*/name)"
+    );
     None
 }
